@@ -46,7 +46,7 @@ router.post(
   upload.fields([{ name: "modelFile" }, { name: "subModelFiles" }]),
   async (req, res) => {
     try {
-      const { name, description, modelName, subModels } = req.body;
+      const { name, description, modelName, subModels, assignedUser, assignedTo } = req.body;
 
       let parsedSubModels = [];
       if (subModels) parsedSubModels = JSON.parse(subModels);
@@ -82,6 +82,13 @@ router.post(
         contentType: subModel.contentType || "",
       }));
 
+      let assignedUsers = [];
+      if (assignedUser) {
+        assignedUsers = Array.isArray(assignedUser) ? assignedUser : [assignedUser];
+      }
+
+
+
       const project = new Project({
         name,
         description,
@@ -91,6 +98,7 @@ router.post(
         modelFileContentType,
         subModels: parsedSubModels,
         createdBy: req.user ? req.user.id : null,
+        assignedTo: assignedUsers, // ✅ include assigned users
       });
 
       await project.save();
@@ -101,6 +109,7 @@ router.post(
     }
   }
 );
+
 
 // Display working but slow
 router.get("/file/:id", async (req, res) => {
