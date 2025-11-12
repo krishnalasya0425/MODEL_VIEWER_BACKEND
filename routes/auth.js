@@ -58,6 +58,19 @@ router.get("/users", async (req, res) => {
   }
 });
 
+// ✅ Get Admin Email
+router.get("/admin", async (req, res) => {
+  try {
+    const admin = await User.findOne({ role: "admin" }).select("email name _id");
+    if (!admin) {
+      return res.status(404).json({ error: "Admin not found" });
+    }
+    res.json(admin);
+  } catch (err) {
+    console.error("Error fetching admin:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
 
 
 

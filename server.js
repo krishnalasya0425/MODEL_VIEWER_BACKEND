@@ -8,6 +8,8 @@ import vrLauncher from "./routes/vrLauncher.js";
 import Grid from "gridfs-stream";
 import path from "path";
 import fs from "fs";
+import helpRoutes from "./routes/helpRoutes.js";
+import notificationsRoutes from "./routes/notifications.js";
 dotenv.config();
 
 const app = express();
@@ -27,16 +29,28 @@ const mongoURI = process.env.MONGO_URI;
 
 const conn = mongoose.createConnection(mongoURI);
 let gfs;
-conn.once("open", () => {
-  gfs = Grid(conn.db, mongoose.mongo);
-  gfs.collection("uploads");
-  app.set("gfs", gfs); // attach gfs to app so routes can use it
-});
 
+conn.once("open", () => {
+  if (process.env.USE_NEW_GRIDFS === 'true') {
+    // Use GridFSBucket (newer approach)
+    gfs = new mongoose.mongo.GridFSBucket(conn.db, {
+      bucketName: "attachments",
+    });
+    console.log("✅ GridFSBucket initialized (new approach)");
+  } else {
+    // Use Grid (older approach)
+    gfs = Grid(conn.db, mongoose.mongo);
+    gfs.collection("uploads");
+    console.log("✅ Grid initialized (legacy approach)");
+  }
+  
+  app.set("gfs", gfs);
+});
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/system", vrLauncher);
-
+app.use("/api/help", helpRoutes);
+app.use("/api/notifications", notificationsRoutes);
 const PORT = process.env.PORT || 5000;
 mongoose
   .connect(mongoURI)

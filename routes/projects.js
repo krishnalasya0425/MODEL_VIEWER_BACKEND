@@ -8,22 +8,18 @@ const router = express.Router();
 
 // GET ALL PROJECTS
 
+// GET ALL PROJECTS FOR DASHBOARD
 router.get("/my-projects", async (req, res) => {
   try {
     const { userId } = req.query;
     console.log("Query received:", req.query);
 
+    // Fetch all projects
     const projects = await Project.find().populate("createdBy", "email role");
     console.log("Projects found:", projects.length);
 
-    if (!userId) return res.json(projects);
-
-    const assignedProjects = projects.filter((p) => {
-      const assignedArray = Array.isArray(p.assignedTo) ? p.assignedTo : [];
-      return assignedArray.map((a) => a.toString()).includes(userId);
-    });
-
-    const mappedProjects = assignedProjects.map((p) => ({
+    // If userId is provided, optionally mark assigned projects (for future use)
+    const mappedProjects = projects.map((p) => ({
       ...p.toObject(),
       modelFileId: p.modelFileId ? p.modelFileId.toString() : null,
       subModels: p.subModels.map((s) => ({
@@ -32,6 +28,7 @@ router.get("/my-projects", async (req, res) => {
       })),
     }));
 
+    // ✅ Return all projects regardless of assignment
     res.json(mappedProjects);
   } catch (err) {
     console.error("Error in /my-projects route:", err);
@@ -41,12 +38,14 @@ router.get("/my-projects", async (req, res) => {
 
 
 
+
 router.post(
   "/create",
+  authMiddleware,
   upload.fields([{ name: "modelFile" }, { name: "subModelFiles" }]),
   async (req, res) => {
     try {
-      const { name, description, modelName, subModels, assignedUser, assignedTo } = req.body;
+      const { name, description, modelName, subModels } = req.body;
 
       let parsedSubModels = [];
       if (subModels) parsedSubModels = JSON.parse(subModels);
@@ -82,12 +81,7 @@ router.post(
         contentType: subModel.contentType || "",
       }));
 
-      let assignedUsers = [];
-      if (assignedUser) {
-        assignedUsers = Array.isArray(assignedUser) ? assignedUser : [assignedUser];
-      }
-
-
+     
 
       const project = new Project({
         name,
@@ -98,7 +92,7 @@ router.post(
         modelFileContentType,
         subModels: parsedSubModels,
         createdBy: req.user ? req.user.id : null,
-        assignedTo: assignedUsers, // ✅ include assigned users
+        assignedTo: [], // ✅ include assigned users
       });
 
       await project.save();
@@ -243,6 +237,7 @@ router.put(
       const projectId = req.params.id;
       console.log("🟢 UPDATE REQUEST BODY:", req.body);
       console.log("🟢 UPDATE FILES:", req.files);
+
       if (!mongoose.Types.ObjectId.isValid(projectId))
         return res.status(400).json({ error: "Invalid project ID" });
 
@@ -272,12 +267,16 @@ router.put(
         });
       }
 
+      // Update basic fields
       existingProject.name = name || existingProject.name;
       existingProject.description = description || existingProject.description;
       existingProject.modelName = modelName || existingProject.modelName;
       existingProject.subModels = parsedSubModels.length
         ? parsedSubModels
         : existingProject.subModels;
+
+      // Ensure assignedTo remains empty (no specific assignment)
+      existingProject.assignedTo = [];
 
       await existingProject.save();
       res.json({ message: "Project updated successfully", project: existingProject });
@@ -287,6 +286,7 @@ router.put(
     }
   }
 );
+
 
 /* ------------------ ✅ DELETE PROJECT ------------------ */
 router.delete("/:id", async (req, res) => {

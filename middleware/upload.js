@@ -1,64 +1,67 @@
-import { NodeIO } from '@gltf-transform/core';
-import { dedup, weld } from '@gltf-transform/functions';
-import fs from 'fs';
-import path from 'path';
-import multer from 'multer';
-import { GridFsStorage } from 'multer-gridfs-storage';
-import dotenv from 'dotenv';
-import os from 'os';
-import { Readable } from 'stream';
+import { NodeIO } from "@gltf-transform/core";
+import { dedup, weld } from "@gltf-transform/functions";
+import fs from "fs";
+import path from "path";
+import multer from "multer";
+import { GridFsStorage } from "multer-gridfs-storage";
+import dotenv from "dotenv";
+import os from "os";
+import { Readable } from "stream";
 
 dotenv.config();
+
 const mongoURI = process.env.MONGO_URI;
 
 const storage = new GridFsStorage({
   url: mongoURI,
-  file: async (req, file) => {
-    const ext = file.originalname.split('.').pop().toLowerCase();
-    const allowedExts = ['glb', 'gltf', 'fbx', 'obj'];
+  file: async (req, file) => {                                           
+    const ext = file.originalname.split(".").pop().toLowerCase();
+    const allowedExts = ["glb", "gltf", "fbx", "obj"];
     if (!allowedExts.includes(ext)) return null;
+     
+    let filename = `${Date.now()}-${file.originalname.replace(/\.(gltf|glb)$/, ".glb")}`;
+    let bucketName = "fs";                    
+    let metadata = { contentType: "model/gltf-binary" };
 
-    // Default file info
-    let filename = `${Date.now()}-${file.originalname.replace(/\.(gltf|glb)$/, '.glb')}`;
-    let bucketName = 'fs';
-    let metadata = { contentType: 'model/gltf-binary' };
-
-    // By default, let multer-gridfs-storage pipe the incoming stream.
     let streamOverride = null;
 
-    if (ext === 'gltf') {
+    // ✅ Handle .gltf → .glb conversion
+    if (ext === "gltf") {
       try {
         const io = new NodeIO().registerExtensions();
-
-        // Write incoming stream to a temp file first (no reliance on file.buffer)
         const tmpIn = path.join(os.tmpdir(), `${Date.now()}-${file.originalname}`);
-        const tmpOut = path.join(os.tmpdir(), `${Date.now()}-${path.basename(file.originalname, '.gltf')}.glb`);
+        const tmpOut = path.join(os.tmpdir(), `${Date.now()}-${path.basename(file.originalname, ".gltf")}.glb`);
 
-        // Pipe incoming stream to disk so NodeIO can read it
+        // Write incoming stream to a temp file
         await new Promise((resolve, reject) => {
           const ws = fs.createWriteStream(tmpIn);
-          file.stream.pipe(ws).on('finish', resolve).on('error', reject);
+          file.stream.pipe(ws).on("finish", resolve).on("error", reject);
         });
 
-        // Convert to GLB
+        // Convert GLTF → GLB and optimize
         const doc = io.read(tmpIn);
         await doc.transform(dedup(), weld());
         const glbBuffer = io.writeBinary(doc);
 
-        // Clean up input file
-        try { fs.unlinkSync(tmpIn); } catch {}
+        // Clean up
+        fs.unlink(tmpIn, () => {});
 
-        // Provide a readable stream to multer-gridfs-storage
+        // Create readable stream from buffer
         streamOverride = Readable.from(glbBuffer);
-
-        // Set final filename/metadata for GLB
-        filename = `${Date.now()}-${file.originalname.replace(/\.gltf$/, '.glb')}`;
-        metadata = { contentType: 'model/gltf-binary', source: 'converted-from-gltf' };
-
+        filename = `${Date.now()}-${file.originalname.replace(/\.gltf$/, ".glb")}`;
+        metadata = { contentType: "model/gltf-binary", source: "converted-from-gltf" };
       } catch (err) {
-        console.error('Error converting GLTF to GLB:', err);
+        console.error("❌ GLTF to GLB conversion failed:", err);
         return null;
       }
+    } else {
+      // ✅ Set proper MIME type for other formats
+      const mimeMap = {
+        glb: "model/gltf-binary",
+        fbx: "application/octet-stream",
+        obj: "text/plain",
+      };
+      metadata = { contentType: mimeMap[ext] || "application/octet-stream" };
     }
 
     return streamOverride
@@ -66,7 +69,7 @@ const storage = new GridFsStorage({
           filename,
           bucketName,
           metadata,
-          file: streamOverride,
+          file: streamOverride, // custom stream
         }
       : {
           filename,
