@@ -10,6 +10,7 @@ import path from "path";
 import fs from "fs";
 import helpRoutes from "./routes/helpRoutes.js";
 import notificationsRoutes from "./routes/notifications.js";
+import { GridFSBucket } from "mongodb";
 dotenv.config();
 
 const app = express();
@@ -26,36 +27,30 @@ const PUBLIC_DIR = path.join(process.cwd(), "public", "models");
 app.use("/models", express.static(PUBLIC_DIR));
 
 const mongoURI = process.env.MONGO_URI;
+let gfsBucket; 
 
-const conn = mongoose.createConnection(mongoURI);
-let gfs;
+mongoose
+  .connect(mongoURI)
+  .then(() => {
+    console.log("MongoDB connected");
 
-conn.once("open", () => {
-  if (process.env.USE_NEW_GRIDFS === 'true') {
-    // Use GridFSBucket (newer approach)
-    gfs = new mongoose.mongo.GridFSBucket(conn.db, {
+
+    gfsBucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
       bucketName: "attachments",
     });
-    console.log("✅ GridFSBucket initialized (new approach)");
-  } else {
-    // Use Grid (older approach)
-    gfs = Grid(conn.db, mongoose.mongo);
-    gfs.collection("uploads");
-    console.log("✅ Grid initialized (legacy approach)");
-  }
-  
-  app.set("gfs", gfs);
-});
+    console.log("GridFSBucket initialized: attachments");
+
+    app.set("gfs", gfsBucket);
+  })
+  .catch((err) => {
+    console.error("MongoDB connection error:", err);
+    process.exit(1);
+  });
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/system", vrLauncher);
 app.use("/api/help", helpRoutes);
 app.use("/api/notifications", notificationsRoutes);
 const PORT = process.env.PORT || 5000;
-mongoose
-  .connect(mongoURI)
-  .then(() => {
-    console.log("MongoDB connected");
-    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-  })
-  .catch((err) => console.log(err));
+
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
