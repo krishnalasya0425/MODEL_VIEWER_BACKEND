@@ -45,7 +45,7 @@ router.post(
   upload.fields([{ name: "modelFile" }, { name: "subModelFiles" }]),
   async (req, res) => {
     try {
-      const { name, description, modelName, subModels } = req.body;
+      const { name, description, modelName, subModels,category  } = req.body;
 
       let parsedSubModels = [];
       if (subModels) parsedSubModels = JSON.parse(subModels);
@@ -89,6 +89,7 @@ router.post(
         modelName,
         modelFileId,
         modelFileName,
+        category ,
         modelFileContentType,
         subModels: parsedSubModels,
         createdBy: req.user ? req.user.id : null,
@@ -235,8 +236,6 @@ router.put(
   async (req, res) => {
     try {
       const projectId = req.params.id;
-      console.log("🟢 UPDATE REQUEST BODY:", req.body);
-      console.log("🟢 UPDATE FILES:", req.files);
 
       if (!mongoose.Types.ObjectId.isValid(projectId))
         return res.status(400).json({ error: "Invalid project ID" });
@@ -245,7 +244,7 @@ router.put(
       if (!existingProject)
         return res.status(404).json({ error: "Project not found" });
 
-      const { name, description, modelName, subModels } = req.body;
+      const { name, description, modelName, subModels ,category } = req.body;
       let parsedSubModels = [];
       if (subModels) parsedSubModels = JSON.parse(subModels);
 
@@ -271,6 +270,7 @@ router.put(
       existingProject.name = name || existingProject.name;
       existingProject.description = description || existingProject.description;
       existingProject.modelName = modelName || existingProject.modelName;
+      if (category) existingProject.category = category;
       existingProject.subModels = parsedSubModels.length
         ? parsedSubModels
         : existingProject.subModels;

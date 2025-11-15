@@ -15,6 +15,10 @@ const projectSchema = new mongoose.Schema(
     modelName: { type: String },
     modelFileId: { type: mongoose.Schema.Types.ObjectId }, // GridFS file ID
     modelFileName: { type: String },
+     category: {
+      type: String,
+      enum: ["simulators", "vehicles", "weapons"],
+    },
      modelFileContentType: { type: String }, // ← store MIME type for main model
     subModels: [subModelSchema],
       assignedTo: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }], // ← important

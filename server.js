@@ -27,7 +27,7 @@ const PUBLIC_DIR = path.join(process.cwd(), "public", "models");
 app.use("/models", express.static(PUBLIC_DIR));
 
 const mongoURI = process.env.MONGO_URI;
-let gfsBucket; 
+let gfsBucket;
 
 mongoose
   .connect(mongoURI)
@@ -38,7 +38,7 @@ mongoose
     gfsBucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
       bucketName: "attachments",
     });
-    console.log("GridFSBucket initialized: attachments");
+  
 
     app.set("gfs", gfsBucket);
   })
