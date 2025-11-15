@@ -6,11 +6,12 @@ dotenv.config();
 
 const storage = new GridFsStorage({
   url: process.env.MONGO_URI,
+  options: { useNewUrlParser: true, useUnifiedTopology: true },
   file: (req, file) => {
     return {
       filename: `${Date.now()}-${file.originalname}`,
       bucketName: "attachments", 
-      contentType: file.mimetype, 
+     
     };
   },
 });

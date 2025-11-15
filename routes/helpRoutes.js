@@ -72,29 +72,27 @@ router.get("/file/:id", async (req, res) => {
     }
 
     const fileId = new mongoose.Types.ObjectId(req.params.id);
-    const files = await gfs.find({ _id: fileId }).toArray();
-    if (!files || files.length === 0) {
+
+    // Use .find().next() – this works on GridFSBucket
+    const file = await gfs.find({ _id: fileId }).next();
+    if (!file) {
       return res.status(404).json({ message: "File not found" });
     }
 
-    const file = files[0];
     const contentType = file.contentType || "application/octet-stream";
 
-    // ✅ Set headers for browser rendering
     res.set({
       "Content-Type": contentType,
-      "Content-Disposition":
-        contentType.startsWith("image/")
-          ? `inline; filename="${file.filename}"`
-          : `attachment; filename="${file.filename}"`,
+      "Content-Disposition": `contentType.startsWith("image/")`
+        ? `inline; filename="${file.filename}"`
+        : `attachment; filename="${file.filename}"`,
       "Cache-Control": "public, max-age=31536000",
     });
 
-    // ✅ Stream the file
     const downloadStream = gfs.openDownloadStream(fileId);
     downloadStream.on("error", (err) => {
       console.error("Stream error:", err);
-      res.status(500).json({ message: "Error streaming file" });
+      if (!res.headersSent) res.status(500).json({ message: "Stream error" });
     });
 
     downloadStream.pipe(res);
