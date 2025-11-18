@@ -1,0 +1,26 @@
+@"
+# Unity WebGL builds - NEVER commit these
+public/webgl-builds/
+*.data.gz
+*.data
+*.wasm.gz
+*.wasm
+Build/
+Temp/
+
+# Node.js
+node_modules/
+npm-debug.log*
+
+# Environment
+.env
+.env.local
+
+# Logs
+logs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+"@ | Out-File -FilePath ".gitignore" -Encoding utf8
