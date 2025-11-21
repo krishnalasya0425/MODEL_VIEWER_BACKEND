@@ -1,45 +1,41 @@
 import multer from "multer";
 import path from "path";
-import fs from "fs";
-import checkDiskSpace from "check-disk-space";
 
-let UNITY_ROOT = "C:/UnityBuilds";
+const UNITY_ROOT = "./UnityBuilds";
 
-// Auto-select drive based on free space
-async function setUnityRoot() {
-  try {
-    const c = await checkDiskSpace("C:");
-    const d = await checkDiskSpace("D:");
+// Memory storage - NO TEMP FILES
+const storage = multer.memoryStorage();
 
-    UNITY_ROOT = c.free > d.free ? "C:/UnityBuilds" : "D:/UnityBuilds";
-
-    // Ensure folder exists
-    if (!fs.existsSync(UNITY_ROOT)) {
-      fs.mkdirSync(UNITY_ROOT, { recursive: true });
+const combinedUpload = multer({
+  storage,
+  limits: {
+    fileSize: 50 * 1024 * 1024 * 1024, // 50GB
+    fieldSize: 50 * 1024 * 1024,
+  },
+  fileFilter: (req, file, cb) => {
+    // Allow chunks without file extensions
+    if (file.fieldname === 'chunk') {
+      return cb(null, true);
     }
 
-    console.log("Unity root set to:", UNITY_ROOT);
-  } catch (err) {
-    console.log("⚠ Defaulting to C:/UnityBuilds due to error");
+    const allowedTypes = [
+      ".zip", ".7z", ".rar", ".gz", ".tar",
+      ".fbx", ".glb", ".gltf",
+      ".unityweb", ".json"
+    ];
+    
+    const ext = path.extname(file.originalname).toLowerCase();
+    
+    if (!ext) {
+      return cb(new Error(`❌ File has no extension: ${file.originalname}`));
+    }
+    
+    if (!allowedTypes.includes(ext)) {
+      return cb(new Error(`❌ File type not allowed: ${ext}`));
+    }
+    
+    cb(null, true);
   }
-}
-
-await setUnityRoot();  // Ensure root is set before multer runs
-
-// STORAGE — directly save to UNITY_ROOT
-const unityStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, UNITY_ROOT); // save directly to the drive folder
-  },
-  filename: (req, file, cb) => {
-    cb(null, file.originalname); // keep same name
-  },
-});
-
-// MULTER uploader
-const combinedUpload = multer({
-  storage: unityStorage,
-  limits: { fileSize: 1024 * 1024 * 2000 }, // 2GB
 });
 
 export { combinedUpload, UNITY_ROOT };

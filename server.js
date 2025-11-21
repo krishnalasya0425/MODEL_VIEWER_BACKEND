@@ -11,18 +11,21 @@ import fs from "fs";
 import helpRoutes from "./routes/helpRoutes.js";
 import notificationsRoutes from "./routes/notifications.js";
 import { GridFSBucket } from "mongodb";
+import uploadRoutes from "./routes/upload.js";
 dotenv.config();
 
 const app = express();
 
 app.use(cors({
   origin: '*', // allow all origins
-  methods: ['GET', 'POST','PUT','DELETE'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
   exposedHeaders: ['Content-Length', 'Content-Range']
 }));
 
 app.use(express.json());
-
+// In your main server file (app.js or server.js), add these configurations:
+app.use(express.json({ limit: '50gb' }));
+app.use(express.urlencoded({ limit: '50gb', extended: true }));
 const PUBLIC_DIR = path.join(process.cwd(), "public", "models");
 app.use("/models", express.static(PUBLIC_DIR));
 
@@ -38,7 +41,7 @@ mongoose
     gfsBucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
       bucketName: "attachments",
     });
-  
+
 
     app.set("gfs", gfsBucket);
   })
@@ -51,6 +54,12 @@ app.use("/api/projects", projectRoutes);
 app.use("/api/system", vrLauncher);
 app.use("/api/help", helpRoutes);
 app.use("/api/notifications", notificationsRoutes);
+app.use("/api/upload", uploadRoutes);
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+const server = app.listen(5000, () => {
+  console.log('Server running on port 5000');
+});
+
+server.timeout = 300000; // 5 minutes
+server.headersTimeout = 300000;
