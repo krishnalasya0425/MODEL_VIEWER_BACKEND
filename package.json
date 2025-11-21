@@ -1,4 +1,7 @@
 {
+   "name": "model-viewer-backend",
+  "version": "1.0.0",
+  "type": "module",
   "dependencies": {
     "@gltf-transform/core": "^4.2.1",
     "@gltf-transform/functions": "^4.2.1",
@@ -14,5 +17,10 @@
     "multer": "^1.4.4",
     "multer-gridfs-storage": "^5.0.2",
     "unzipper": "^0.12.3"
+  },
+  "scripts": {
+    "dev": "nodemon start.js",
+    "start": "node start.js",
+    "server": "node --max-old-space-size=4096 server.js"
   }
 }

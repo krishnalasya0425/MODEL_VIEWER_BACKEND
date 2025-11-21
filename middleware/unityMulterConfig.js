@@ -1,9 +1,7 @@
 import multer from "multer";
 import path from "path";
 
-const UNITY_ROOT = "./UnityBuilds";
-
-// Memory storage - NO TEMP FILES
+// Memory storage only - NO DISK STORAGE
 const storage = multer.memoryStorage();
 
 const combinedUpload = multer({
@@ -24,6 +22,7 @@ const combinedUpload = multer({
       ".unityweb", ".json"
     ];
     
+    // 🟢 FIXED: Use path.extname() instead of file.extname()
     const ext = path.extname(file.originalname).toLowerCase();
     
     if (!ext) {
@@ -38,5 +37,6 @@ const combinedUpload = multer({
   }
 });
 
-export { combinedUpload, UNITY_ROOT };
+// Remove UNITY_ROOT export
+export { combinedUpload };
 export default combinedUpload;

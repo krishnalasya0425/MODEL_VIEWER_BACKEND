@@ -5,25 +5,22 @@ import dotenv from "dotenv";
 import authRoutes from "./routes/auth.js";
 import projectRoutes from "./routes/projects.js";
 import vrLauncher from "./routes/vrLauncher.js";
-import Grid from "gridfs-stream";
 import path from "path";
-import fs from "fs";
 import helpRoutes from "./routes/helpRoutes.js";
 import notificationsRoutes from "./routes/notifications.js";
-import { GridFSBucket } from "mongodb";
 import uploadRoutes from "./routes/upload.js";
 dotenv.config();
 
 const app = express();
 
 app.use(cors({
-  origin: '*', // allow all origins
+  origin: '*', 
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   exposedHeaders: ['Content-Length', 'Content-Range']
 }));
 
 app.use(express.json());
-// In your main server file (app.js or server.js), add these configurations:
+
 app.use(express.json({ limit: '50gb' }));
 app.use(express.urlencoded({ limit: '50gb', extended: true }));
 const PUBLIC_DIR = path.join(process.cwd(), "public", "models");
@@ -37,11 +34,9 @@ mongoose
   .then(() => {
     console.log("MongoDB connected");
 
-
     gfsBucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
       bucketName: "attachments",
     });
-
 
     app.set("gfs", gfsBucket);
   })
@@ -49,17 +44,69 @@ mongoose
     console.error("MongoDB connection error:", err);
     process.exit(1);
   });
+
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/system", vrLauncher);
 app.use("/api/help", helpRoutes);
 app.use("/api/notifications", notificationsRoutes);
 app.use("/api/upload", uploadRoutes);
+
 const PORT = process.env.PORT || 5000;
 
-const server = app.listen(5000, () => {
-  console.log('Server running on port 5000');
+
+const monitorMemory = () => {
+  const used = process.memoryUsage();
+  const memoryInfo = {
+    rss: `${Math.round(used.rss / 1024 / 1024)} MB`,
+    heapTotal: `${Math.round(used.heapTotal / 1024 / 1024)} MB`,
+    heapUsed: `${Math.round(used.heapUsed / 1024 / 1024)} MB`,
+    external: `${Math.round(used.external / 1024 / 1024)} MB`,
+  };
+  console.log("📊 Memory usage:", memoryInfo);
+  return memoryInfo;
+};
+
+
+const server = app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`💡 For 4GB memory, run: node --max-old-space-size=4096 server.js`);
+  console.log(`💡 Or use: npm run server`);
+  
+
+  monitorMemory();
 });
 
-server.timeout = 300000; // 5 minutes
+server.timeout = 300000; 
 server.headersTimeout = 300000;
+
+
+setInterval(monitorMemory, 5 * 60 * 1000);
+
+
+const gracefulShutdown = () => {
+  console.log('🛑 Server shutting down...');
+  monitorMemory();
+  server.close(() => {
+    console.log('✅ Server closed');
+    process.exit(0);
+  });
+};
+
+process.on('SIGINT', gracefulShutdown);
+process.on('SIGTERM', gracefulShutdown);
+
+
+process.on('uncaughtException', (error) => {
+  console.error('💥 Uncaught Exception:', error);
+  monitorMemory();
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('💥 Unhandled Rejection at:', promise, 'reason:', reason);
+  monitorMemory();
+  process.exit(1);
+});
+
+export default app;

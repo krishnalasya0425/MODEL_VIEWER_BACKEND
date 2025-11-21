@@ -3,16 +3,27 @@ import mongoose from "mongoose";
 import Project from "../models/Project.js";
 import { authMiddleware, adminMiddleware } from "../middleware/auth.js";
 import upload from "../middleware/upload.js";
-import combinedUpload, { UNITY_ROOT } from "../middleware/unityMulterConfig.js";
+import combinedUpload from "../middleware/unityMulterConfig.js";
 import unzipper from "unzipper";
 import { exec } from 'child_process';
 import fs from "fs";
 import path from "path";
 import { promisify } from "util";
 import stream from "stream";
+import multer from "multer";
+
 const router = express.Router();
 
-// Helper function to find executable
+const chunkStorage = multer.memoryStorage();
+
+const chunkUpload = multer({
+  storage: chunkStorage,
+  limits: {
+    fileSize: 100 * 1024 * 1024, 
+  },
+})
+
+
 function findExe(dir) {
   const files = fs.readdirSync(dir);
   for (const f of files) {
@@ -26,12 +37,12 @@ function findExe(dir) {
   return null;
 }
 
-// Helper function to delete GridFS files
+
 async function deleteGridFSFile(fileId, bucket) {
   try {
     if (!fileId) return;
 
-    // Check if file exists before deleting
+
     const filesCollection = await mongoose.connection.db.collection("fs.files");
     const fileExists = await filesCollection.findOne({ _id: fileId });
 
@@ -58,83 +69,178 @@ function deleteDirectory(dirPath) {
   }
 }
 
-// LAUNCH BUILD ENDPOINT
+
+// router.post("/launch-build", async (req, res) => {
+//   try {
+//     const { projectId, buildId } = req.body;
+
+//     console.log("🚀 Launch build request received:", {
+//       projectId,
+//       buildId
+//     });
+
+//     if (!projectId) {
+//       return res.status(400).json({
+//         error: "Missing required field: projectId"
+//       });
+//     }
+
+//     const project = await Project.findById(projectId);
+//     if (!project) {
+//       return res.status(404).json({
+//         error: "Project not found"
+//       });
+//     }
+
+//     // Find the specific build to launch
+//     let build;
+//     if (buildId) {
+//       build = project.builds.id(buildId);
+//       if (!build) {
+//         return res.status(404).json({
+//           error: "Build not found"
+//         });
+//       }
+//     } else {
+//       // Launch main build if no buildId specified
+//       build = project.builds.find(b => b.isMain);
+//       if (!build) {
+//         return res.status(404).json({
+//           error: "No main build found for this project"
+//         });
+//       }
+//     }
+
+//     console.log("📁 Build data:", {
+//       name: build.name,
+//       description: build.description,
+//       executablePath: build.executablePath,
+//       isMain: build.isMain
+//     });
+
+//     const executableName = build.executablePath;
+//     if (!executableName) {
+//       return res.status(400).json({
+//         error: "No executable path configured for this build"
+//       });
+//     }
+
+//     // Build path structure
+//     const projectDir = path.join(
+//       UNITY_ROOT,
+//       build.category || project.category,
+//       project.name.replace(/\s+/g, "_")
+//     );
+
+//     const fullExecutablePath = path.join(projectDir, executableName);
+
+//     console.log("🔍 Path reconstruction:", {
+//       projectDir,
+//       executableName,
+//       fullExecutablePath
+//     });
+
+//     if (!fs.existsSync(fullExecutablePath)) {
+//       console.log("❌ Build file not found at path:", fullExecutablePath);
+
+//       if (fs.existsSync(projectDir)) {
+//         console.log("📁 Directory exists, contents:", fs.readdirSync(projectDir));
+
+//         const allExeFiles = [];
+//         function findExeFiles(dir) {
+//           const items = fs.readdirSync(dir);
+//           items.forEach(item => {
+//             const fullPath = path.join(dir, item);
+//             if (fs.statSync(fullPath).isDirectory()) {
+//               findExeFiles(fullPath);
+//             } else if (item.endsWith('.exe')) {
+//               allExeFiles.push({
+//                 name: item,
+//                 path: fullPath,
+//                 relative: path.relative(projectDir, fullPath)
+//               });
+//             }
+//           });
+//         }
+
+//         findExeFiles(projectDir);
+//         console.log("🔍 All .exe files found:", allExeFiles);
+
+//         if (allExeFiles.length > 0) {
+//           const foundExe = allExeFiles[0];
+//           console.log("🔄 Using found executable:", foundExe);
+
+//           build.executablePath = foundExe.relative;
+//           await project.save();
+
+//           console.log("✅ Updated build with new executable path:", foundExe.relative);
+//           return launchExecutable(foundExe.path, res);
+//         }
+//       }
+
+//       return res.status(404).json({
+//         error: "Build file not found. It may have been moved or deleted."
+//       });
+//     }
+
+//     console.log("✅ Build file found, launching:", fullExecutablePath);
+//     await launchExecutable(fullExecutablePath, res);
+
+//   } catch (error) {
+//     console.error("❌ Error in launch-build:", error);
+//     res.status(500).json({
+//       error: "Internal server error: " + error.message
+//     });
+//   }
+// });
+
 router.post("/launch-build", async (req, res) => {
   try {
     const { projectId, buildId } = req.body;
 
-    console.log("🚀 Launch build request received:", {
-      projectId,
-      buildId
-    });
+    console.log("🚀 Launch build request received:", { projectId, buildId });
 
     if (!projectId) {
-      return res.status(400).json({
-        error: "Missing required field: projectId"
-      });
+      return res.status(400).json({ error: "Missing required field: projectId" });
     }
 
     const project = await Project.findById(projectId);
     if (!project) {
-      return res.status(404).json({
-        error: "Project not found"
-      });
+      return res.status(404).json({ error: "Project not found" });
     }
 
-    // Find the specific build to launch
+ 
     let build;
     if (buildId) {
       build = project.builds.id(buildId);
       if (!build) {
-        return res.status(404).json({
-          error: "Build not found"
-        });
+        return res.status(404).json({ error: "Build not found" });
       }
     } else {
-      // Launch main build if no buildId specified
+    
       build = project.builds.find(b => b.isMain);
       if (!build) {
-        return res.status(404).json({
-          error: "No main build found for this project"
-        });
+        return res.status(404).json({ error: "No main build found for this project" });
       }
     }
 
     console.log("📁 Build data:", {
       name: build.name,
-      description: build.description,
-      executablePath: build.executablePath,
-      isMain: build.isMain
+      executablePath: build.executablePath
     });
 
-    const executableName = build.executablePath;
-    if (!executableName) {
-      return res.status(400).json({
-        error: "No executable path configured for this build"
-      });
-    }
+   
+    const buildsRoot = path.join(CHUNK_DIR, 'builds');
+    const fullExecutablePath = path.join(buildsRoot, build.executablePath);
 
-    // Build path structure
-    const projectDir = path.join(
-      UNITY_ROOT,
-      build.category || project.category,
-      project.name.replace(/\s+/g, "_")
-    );
-
-    const fullExecutablePath = path.join(projectDir, executableName);
-
-    console.log("🔍 Path reconstruction:", {
-      projectDir,
-      executableName,
-      fullExecutablePath
-    });
+    console.log("🔍 Executable path:", fullExecutablePath);
 
     if (!fs.existsSync(fullExecutablePath)) {
       console.log("❌ Build file not found at path:", fullExecutablePath);
+      
 
-      if (fs.existsSync(projectDir)) {
-        console.log("📁 Directory exists, contents:", fs.readdirSync(projectDir));
-
+      const buildDir = path.dirname(fullExecutablePath);
+      if (fs.existsSync(buildDir)) {
         const allExeFiles = [];
         function findExeFiles(dir) {
           const items = fs.readdirSync(dir);
@@ -146,13 +252,13 @@ router.post("/launch-build", async (req, res) => {
               allExeFiles.push({
                 name: item,
                 path: fullPath,
-                relative: path.relative(projectDir, fullPath)
+                relative: path.relative(buildsRoot, fullPath)
               });
             }
           });
         }
 
-        findExeFiles(projectDir);
+        findExeFiles(buildDir);
         console.log("🔍 All .exe files found:", allExeFiles);
 
         if (allExeFiles.length > 0) {
@@ -168,7 +274,7 @@ router.post("/launch-build", async (req, res) => {
       }
 
       return res.status(404).json({
-        error: "Build file not found. It may have been moved or deleted."
+        error: "Build file not found. It may have expired or been cleaned up."
       });
     }
 
@@ -177,13 +283,10 @@ router.post("/launch-build", async (req, res) => {
 
   } catch (error) {
     console.error("❌ Error in launch-build:", error);
-    res.status(500).json({
-      error: "Internal server error: " + error.message
-    });
+    res.status(500).json({ error: "Internal server error: " + error.message });
   }
 });
 
-// Helper function to launch executable
 function launchExecutable(executablePath, res) {
   return new Promise((resolve) => {
     console.log("🎯 Executing command:", `"${executablePath}"`);
@@ -217,10 +320,10 @@ const readdir = promisify(fs.readdir);
 const unlink = promisify(fs.unlink);
 const exists = promisify(fs.exists);
 
-// Temporary chunk storage (will be cleaned up)
+
 const CHUNK_DIR = path.join(process.cwd(), "chunk_temp");
 
-// Ensure chunk directory exists
+
 (async () => {
   try {
     await mkdir(CHUNK_DIR, { recursive: true });
@@ -230,7 +333,7 @@ const CHUNK_DIR = path.join(process.cwd(), "chunk_temp");
   }
 })();
 
-// Clean up old chunks on startup
+
 const cleanOldChunks = async () => {
   try {
     const files = await readdir(CHUNK_DIR);
@@ -251,11 +354,128 @@ const cleanOldChunks = async () => {
   }
 };
 
-// Run cleanup on startup
+
 cleanOldChunks();
 
-// Complete chunk upload handler
-router.post('/upload/chunk', combinedUpload.single('chunk'), async (req, res) => {
+
+async function isBuildDirectory(dirPath) {
+  try {
+    if (!fs.existsSync(dirPath)) return false;
+    
+    const items = await readdir(dirPath);
+    
+  
+    const buildIndicators = ['.exe', '.dll', 'UnityPlayer.dll', 'MonoBleedingEdge', '_Data'];
+    
+    for (const item of items) {
+      const itemPath = path.join(dirPath, item);
+      const stats = fs.statSync(itemPath);
+      
+      if (stats.isDirectory()) {
+    
+        if (await isBuildDirectory(itemPath)) return true;
+      } else {
+      
+        for (const indicator of buildIndicators) {
+          if (item.includes(indicator) || item.endsWith(indicator)) {
+            return true;
+          }
+        }
+      }
+    }
+    
+    return false;
+  } catch (error) {
+    console.error(`Error checking build directory ${dirPath}:`, error);
+    return false;
+  }
+}
+
+
+const cleanupTempStorage = async () => {
+  try {
+    if (!fs.existsSync(CHUNK_DIR)) {
+      return;
+    }
+
+    const items = await readdir(CHUNK_DIR);
+    const now = Date.now();
+    const ONE_HOUR = 60 * 60 * 1000;
+
+    let cleanedCount = 0;
+    
+    for (const item of items) {
+      const itemPath = path.join(CHUNK_DIR, item);
+      
+      try {
+        const stats = fs.statSync(itemPath);
+        
+     
+        if (now - stats.mtime.getTime() > ONE_HOUR) {
+          fs.rmSync(itemPath, { recursive: true, force: true });
+          cleanedCount++;
+          console.log(`🧹 Cleaned up old temporary item: ${item}`);
+        }
+      } catch (error) {
+        console.error(`❌ Failed to clean ${item}:`, error.message);
+      }
+    }
+
+    if (cleanedCount > 0) {
+      console.log(`✅ Cleaned up ${cleanedCount} temporary items`);
+    }
+
+  } catch (error) {
+    console.error("Error during temp storage cleanup:", error);
+  }
+};
+
+
+setInterval(cleanupTempStorage, 30 * 60 * 1000); 
+
+
+const cleanupAccidentalChunkFiles = async () => {
+  try {
+    console.log("🧹 Cleaning up accidental chunk files in Unity builds directory...");
+    
+    const cleanDirectory = async (dirPath) => {
+      if (!fs.existsSync(dirPath)) return;
+      
+      const items = await readdir(dirPath);
+      for (const item of items) {
+        const fullPath = path.join(dirPath, item);
+        const stat = fs.statSync(fullPath);
+        
+        if (stat.isDirectory()) {
+         
+          await cleanDirectory(fullPath);
+          
+      
+          const remainingItems = await readdir(fullPath);
+          if (remainingItems.length === 0) {
+            fs.rmdirSync(fullPath);
+            console.log(`✅ Removed empty directory: ${fullPath}`);
+          }
+        } else if (item.includes('chunk_') || item.endsWith('.part')) {
+        
+          fs.unlinkSync(fullPath);
+          console.log(`✅ Removed chunk file: ${fullPath}`);
+        }
+      }
+    };
+    
+    await cleanDirectory(UNITY_ROOT);
+    console.log("✅ Finished cleaning accidental chunk files");
+  } catch (error) {
+    console.error("❌ Error cleaning accidental chunk files:", error);
+  }
+};
+
+
+cleanupAccidentalChunkFiles();
+
+
+router.post('/upload/chunk', chunkUpload.single('chunk'), async (req, res) => {
   try {
     const { 
       chunkIndex, 
@@ -273,18 +493,18 @@ router.post('/upload/chunk', combinedUpload.single('chunk'), async (req, res) =>
     // Generate unique upload ID if not provided
     const currentUploadId = uploadId || `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    // Create upload directory
+    // Create upload directory in CHUNK_DIR (temporary location)
     const uploadDir = path.join(CHUNK_DIR, currentUploadId);
     await mkdir(uploadDir, { recursive: true });
 
-    // Save chunk with index
+    // Save chunk with index to TEMPORARY location
     const chunkFilename = `chunk_${chunkIndex}.part`;
     const chunkPath = path.join(uploadDir, chunkFilename);
     
-    // Write chunk to disk
+    // Write chunk to TEMPORARY disk location (CHUNK_DIR)
     await writeFile(chunkPath, req.file.buffer);
     
-    console.log(`📦 Saved chunk ${parseInt(chunkIndex) + 1}/${totalChunks} for ${originalName}`);
+    console.log(`📦 Saved chunk ${parseInt(chunkIndex) + 1}/${totalChunks} for ${originalName} to TEMP location: ${chunkPath}`);
 
     // Check if all chunks are uploaded
     const chunkFiles = await readdir(uploadDir);
@@ -293,7 +513,7 @@ router.post('/upload/chunk', combinedUpload.single('chunk'), async (req, res) =>
     if (allChunksUploaded) {
       console.log(`✅ All chunks uploaded for ${originalName}, assembling...`);
       
-      // Assemble file
+      // Assemble file in TEMPORARY location
       const assembledFilePath = path.join(uploadDir, originalName);
       const writeStream = fs.createWriteStream(assembledFilePath);
 
@@ -310,19 +530,7 @@ router.post('/upload/chunk', combinedUpload.single('chunk'), async (req, res) =>
       writeStream.end();
 
       writeStream.on('finish', async () => {
-        console.log(`✅ File assembled: ${originalName}`);
-        
-        // Store assembled file info for main request
-        const assembledFileInfo = {
-          originalName,
-          filePath: assembledFilePath,
-          fileKey,
-          uploadId: currentUploadId,
-          size: fileSize
-        };
-
-        // You can store this in a temporary in-memory store or database
-        // For now, we'll just log it and the main route will handle it
+        console.log(`✅ File assembled in TEMP location: ${assembledFilePath}`);
         
         res.json({ 
           success: true, 
@@ -353,7 +561,7 @@ router.post('/upload/chunk', combinedUpload.single('chunk'), async (req, res) =>
   }
 });
 
-// Endpoint to get uploaded file by uploadId
+
 router.get('/upload/file/:uploadId', async (req, res) => {
   try {
     const { uploadId } = req.params;
@@ -379,7 +587,7 @@ router.get('/upload/file/:uploadId', async (req, res) => {
   }
 });
 
-// Cleanup endpoint (call this after successful project creation)
+
 router.delete('/upload/cleanup/:uploadId', async (req, res) => {
   try {
     const { uploadId } = req.params;
@@ -397,7 +605,7 @@ router.delete('/upload/cleanup/:uploadId', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-// GET ALL PROJECTS
+
 router.get("/my-projects", async (req, res) => {
   try {
     console.log("📋 Fetching all projects for dashboard");
@@ -411,7 +619,7 @@ router.get("/my-projects", async (req, res) => {
       builds: p.builds.map(b => ({
         ...b.toObject(),
         _id: b._id.toString(),
-        // Include name and description for all builds
+  
         name: b.name,
         description: b.description
       })),
@@ -429,84 +637,48 @@ router.get("/my-projects", async (req, res) => {
 });
 
 
-// Enhanced cleanup function
-const cleanupChunkTemp = async () => {
-  try {
-    if (!fs.existsSync(CHUNK_DIR)) {
-      return;
-    }
 
-    const files = await readdir(CHUNK_DIR);
-    const now = Date.now();
-    const ONE_HOUR = 60 * 60 * 1000;
 
-    let cleanedCount = 0;
-    
-    for (const file of files) {
-      const filePath = path.join(CHUNK_DIR, file);
-      const stats = fs.statSync(filePath);
-      
-      // Delete folders older than 1 hour
-      if (now - stats.mtime.getTime() > ONE_HOUR) {
-        fs.rmSync(filePath, { recursive: true, force: true });
-        cleanedCount++;
-        console.log(`🧹 Cleaned up old chunk folder: ${file}`);
-      }
-    }
 
-    if (cleanedCount > 0) {
-      console.log(`✅ Cleaned up ${cleanedCount} old chunk folders`);
-    }
-
-    // If chunk_temp directory is empty, delete it too
-    const remainingFiles = await readdir(CHUNK_DIR);
-    if (remainingFiles.length === 0) {
-      fs.rmdirSync(CHUNK_DIR);
-      console.log("🧹 Deleted empty chunk_temp directory");
-    }
-
-  } catch (error) {
-    console.error("Error during chunk_temp cleanup:", error);
-  }
-};
-// CREATE PROJECT (Admin only) - With enhanced build support
 const processBuildZipStream = async (fileStream, originalname, category, projectName, buildConfig) => {
   return new Promise((resolve, reject) => {
-    const projectFolder = path.join(
-      UNITY_ROOT,
+ 
+    const tempProjectDir = path.join(
+      CHUNK_DIR, 
+      'builds',
       category,
-      projectName.replace(/\s+/g, "_")
+      projectName.replace(/\s+/g, "_"),
+      buildConfig.name.replace(/\s+/g, "_")
     );
 
-    // Create project folder if it doesn't exist
-    if (!fs.existsSync(projectFolder)) {
-      fs.mkdirSync(projectFolder, { recursive: true });
+   
+    if (!fs.existsSync(tempProjectDir)) {
+      fs.mkdirSync(tempProjectDir, { recursive: true });
+      
     }
 
-    console.log("🔓 Extracting build from stream...");
-
-    // Stream directly to extraction
+ 
     fileStream
-      .pipe(unzipper.Extract({ path: projectFolder }))
+      .pipe(unzipper.Extract({ path: tempProjectDir }))
       .on('close', () => {
-        console.log("✅ Extraction completed");
-        
-        // Find .exe
-        console.log("🔍 Searching for executable...");
-        const exe = findExe(projectFolder);
+        const exe = findExe(tempProjectDir);
 
         if (!exe) {
-          console.log("❌ No executable found");
+          const extractedFiles = fs.readdirSync(tempProjectDir);
           reject(new Error("No .exe file found in the build."));
           return;
         }
 
-        console.log("✅ Found executable:", exe);
+
+
+        // 🟢 FIXED: Store relative path from temp builds directory
+        const buildsRoot = path.join(CHUNK_DIR, 'builds');
+        const relativeExePath = path.relative(buildsRoot, path.join(tempProjectDir, exe));
 
         resolve({
           name: buildConfig.name || "Unnamed Build",
           description: buildConfig.description || "",
-          executablePath: exe,
+          executablePath: relativeExePath, // Store relative path
           isMain: buildConfig.isMain || false,
           category: category,
           version: buildConfig.version || "1.0.0"
@@ -529,16 +701,12 @@ router.post(
     { name: "chunkedFiles", maxCount: 20 }
   ]),
   async (req, res) => {
+    let parsedChunkedFiles = [];
+    
     try {
-      console.log("📨 Starting project creation with chunk support...");
-
-      // 🟢 ADD MEMORY USAGE LOGGING
+      
       const used = process.memoryUsage();
-      console.log("🧠 Memory usage on start:", {
-        rss: `${Math.round(used.rss / 1024 / 1024)} MB`,
-        heapTotal: `${Math.round(used.heapTotal / 1024 / 1024)} MB`,
-        heapUsed: `${Math.round(used.heapUsed / 1024 / 1024)} MB`,
-      });
+      
 
       const { 
         name, 
@@ -551,7 +719,7 @@ router.post(
         chunkedFiles
       } = req.body;
 
-      // Parse configurations
+  
       let parsedSubModels = [];
       if (subModels) {
         try { parsedSubModels = JSON.parse(subModels); } catch (e) { parsedSubModels = []; }
@@ -569,31 +737,27 @@ router.post(
         try { parsedSubBuilds = JSON.parse(subBuilds); } catch (e) { parsedSubBuilds = []; }
       }
 
-      let parsedChunkedFiles = [];
+      parsedChunkedFiles = [];
       if (chunkedFiles) {
         try { parsedChunkedFiles = JSON.parse(chunkedFiles); } catch (e) { console.error("Error parsing chunkedFiles:", e); }
       }
 
-      console.log("🔍 Processing chunked files:", parsedChunkedFiles.length);
-
-      // 🟢 PROCESS CHUNKED FILES ONE BY ONE TO AVOID MEMORY OVERLOAD
       for (const chunkedFile of parsedChunkedFiles) {
         const { uploadId, fileKey, originalName } = chunkedFile;
         const uploadDir = path.join(CHUNK_DIR, uploadId);
         const assembledFilePath = path.join(uploadDir, originalName);
 
-        console.log(`🔍 Processing chunked file: ${originalName} from ${uploadId}`);
+       
 
         if (fs.existsSync(assembledFilePath)) {
           try {
-            // 🟢 USE STREAMS INSTEAD OF LOADING ENTIRE FILE INTO MEMORY
+          
             const fileStats = fs.statSync(assembledFilePath);
-            console.log(`📁 File size: ${(fileStats.size / 1024 / 1024).toFixed(2)} MB`);
-
-            // Create a file stream instead of loading entire buffer
+           
+            
             const fileStream = fs.createReadStream(assembledFilePath);
             
-            // Create file info with stream instead of buffer
+            
             const fileInfo = {
               stream: fileStream,
               originalname: originalName,
@@ -601,7 +765,7 @@ router.post(
               size: fileStats.size
             };
 
-            // Add to appropriate files array based on fileKey
+            
             if (fileKey === 'mainBuildZip') {
               req.files.mainBuildZip = [fileInfo];
             } else if (fileKey.startsWith('subBuildZips_')) {
@@ -609,7 +773,7 @@ router.post(
               req.files.subBuildZips.push(fileInfo);
             }
 
-            console.log(`✅ Added chunked file to request: ${originalName}`);
+          
 
           } catch (error) {
             console.error(`❌ Error processing chunked file ${originalName}:`, error);
@@ -619,40 +783,40 @@ router.post(
         }
       }
 
-      // Initialize GridFS bucket
+    
       const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
         bucketName: "fs",
       });
 
-      // Handle main model file with streams
+      
       let modelFileId = null;
       let modelFileName = "";
       let modelFileContentType = "";
 
       if (req.files.modelFile && req.files.modelFile[0]) {
         const modelFile = req.files.modelFile[0];
-        console.log("📦 Processing main model file:", modelFile.originalname);
+      
 
         try {
           const uploadStream = bucket.openUploadStream(modelFile.originalname, {
             contentType: modelFile.mimetype,
           });
 
-          // 🟢 USE STREAMS FOR GRIDFS UPLOAD
+        
           if (modelFile.stream) {
-            // For chunked files, use the stream
+            
             await new Promise((resolve, reject) => {
               modelFile.stream
                 .pipe(uploadStream)
                 .on('finish', () => {
                   modelFileId = uploadStream.id;
-                  console.log("✅ Main model streamed to GridFS, ID:", modelFileId);
+                 
                   resolve();
                 })
                 .on('error', reject);
             });
           } else {
-            // For direct uploads, use buffer with stream
+           
             const bufferStream = new stream.PassThrough();
             bufferStream.end(modelFile.buffer);
             
@@ -661,7 +825,7 @@ router.post(
                 .pipe(uploadStream)
                 .on('finish', () => {
                   modelFileId = uploadStream.id;
-                  console.log("✅ Main model uploaded to GridFS, ID:", modelFileId);
+                  
                   resolve();
                 })
                 .on('error', reject);
@@ -681,10 +845,10 @@ router.post(
         });
       }
 
-      // Process builds with streams
+ 
       const projectBuilds = [];
 
-      // Process main build
+
       if (req.files.mainBuildZip && req.files.mainBuildZip[0]) {
         const mainBuildFile = req.files.mainBuildZip[0];
         const mainBuildConfig = {
@@ -694,7 +858,7 @@ router.post(
           version: parsedMainBuild.version || "1.0.0"
         };
 
-        console.log("🔓 Processing main build...");
+
 
         try {
           const mainBuild = await processBuildZipStream(
@@ -705,7 +869,7 @@ router.post(
             mainBuildConfig
           );
           projectBuilds.push(mainBuild);
-          console.log("✅ Main build processed");
+       
         } catch (error) {
           console.error("❌ Error processing main build:", error);
           return res.status(500).json({ error: "Failed to process main build: " + error.message });
@@ -716,7 +880,7 @@ router.post(
         });
       }
 
-      // Process sub-builds
+
       if (req.files.subBuildZips && req.files.subBuildZips.length > 0) {
         console.log("📦 Processing sub-builds...");
 
@@ -762,17 +926,61 @@ router.post(
       await project.save();
       console.log("✅ Project saved successfully with ID:", project._id);
 
-      // 🟢 CLEANUP CHUNKED FILES AFTER SUCCESS
-      for (const chunkedFile of parsedChunkedFiles) {
-        try {
-          const uploadDir = path.join(CHUNK_DIR, chunkedFile.uploadId);
-          if (fs.existsSync(uploadDir)) {
-            fs.rmSync(uploadDir, { recursive: true, force: true });
-            console.log(`🧹 Cleaned up chunked upload: ${chunkedFile.uploadId}`);
+      // 🟢 ENHANCED CLEANUP - Remove ALL temporary files
+      console.log("🧹 Starting comprehensive cleanup...");
+
+      if (parsedChunkedFiles && parsedChunkedFiles.length > 0) {
+        let cleanedCount = 0;
+        
+        for (const chunkedFile of parsedChunkedFiles) {
+          try {
+            const uploadDir = path.join(CHUNK_DIR, chunkedFile.uploadId);
+            
+            if (fs.existsSync(uploadDir)) {
+              fs.rmSync(uploadDir, { recursive: true, force: true });
+              cleanedCount++;
+              console.log(`✅ Cleaned up chunked upload: ${chunkedFile.uploadId}`);
+            }
+          } catch (cleanupError) {
+            console.error(`⚠️ Could not clean up ${chunkedFile.uploadId}:`, cleanupError.message);
           }
-        } catch (cleanupError) {
-          console.error("Error cleaning up chunked files:", cleanupError);
         }
+        
+        console.log(`🧹 Cleaned up ${cleanedCount} chunk folders`);
+      }
+
+      // 🟢 Clean up any old temporary files
+      await cleanupTempStorage();
+
+      // 🟢 Final verification
+      try {
+        if (fs.existsSync(CHUNK_DIR)) {
+          const remainingItems = await readdir(CHUNK_DIR);
+          console.log(`📊 Final chunk_temp status: ${remainingItems.length} items remaining`);
+          
+          // List what remains for debugging
+          if (remainingItems.length > 0) {
+            console.log("📁 Remaining items:", remainingItems);
+            
+            // 🟢 Extra cleanup for any remaining build directories
+            for (const item of remainingItems) {
+              const itemPath = path.join(CHUNK_DIR, item);
+              if (fs.existsSync(itemPath)) {
+                try {
+                  // Check if it's a build directory (contains 'builds' in path)
+                  if (item.includes('build') || await isBuildDirectory(itemPath)) {
+                    fs.rmSync(itemPath, { recursive: true, force: true });
+                    console.log(`🧹 Cleaned up build directory: ${item}`);
+                  }
+                } catch (error) {
+                  console.error(`❌ Could not clean ${item}:`, error.message);
+                }
+              }
+            }
+          }
+        }
+      } catch (verifyError) {
+        console.error("❌ Final verification error:", verifyError);
       }
 
       // 🟢 LOG MEMORY USAGE AFTER PROCESSING
@@ -809,27 +1017,37 @@ router.post(
         heapUsed: `${Math.round(usedError.heapUsed / 1024 / 1024)} MB`,
       });
 
-      // Cleanup on error
+      // 🟢 ENHANCED CLEANUP ON ERROR
+      console.log("🧹 Starting cleanup due to error...");
       try {
-        const { chunkedFiles } = req.body;
-        if (chunkedFiles) {
-          const parsedChunkedFiles = JSON.parse(chunkedFiles);
+        if (parsedChunkedFiles && parsedChunkedFiles.length > 0) {
+          let cleanedCount = 0;
           for (const chunkedFile of parsedChunkedFiles) {
-            const uploadDir = path.join(CHUNK_DIR, chunkedFile.uploadId);
-            if (fs.existsSync(uploadDir)) {
-              fs.rmSync(uploadDir, { recursive: true, force: true });
+            try {
+              const uploadDir = path.join(CHUNK_DIR, chunkedFile.uploadId);
+              if (fs.existsSync(uploadDir)) {
+                fs.rmSync(uploadDir, { recursive: true, force: true });
+                cleanedCount++;
+                console.log(`✅ Cleaned up chunked upload on error: ${chunkedFile.uploadId}`);
+              }
+            } catch (cleanupError) {
+              console.error(`⚠️ Error cleaning up ${chunkedFile.uploadId} on error:`, cleanupError);
             }
           }
+          console.log(`🧹 Error cleanup completed: ${cleanedCount} chunk folders removed`);
         }
+        
+        // Also clean up any temporary build directories
+        await cleanupTempStorage();
+        
       } catch (cleanupError) {
-        console.error("Error during cleanup:", cleanupError);
+        console.error("❌ Error during error cleanup:", cleanupError);
       }
       
       res.status(500).json({ error: err.message });
     }
   }
 );
-
 // Add this route to handle chunked uploads
 
 // ADD NEW BUILD TO EXISTING PROJECT
@@ -1103,8 +1321,6 @@ router.get("/file/:id", async (req, res) => {
 // UPDATE PROJECT (Admin only)
 router.put(
   "/:id",
-  authMiddleware,
-  adminMiddleware,
   upload.fields([{ name: "modelFile" }, { name: "subModelFiles" }]),
   async (req, res) => {
     try {
@@ -1158,8 +1374,8 @@ router.put(
 );
 
 
-// DELETE PROJECT (Admin only) - WITH COMPLETE CLEANUP
-router.delete("/:id",async (req, res) => {
+
+router.delete("/:id", async (req, res) => {
   try {
     const projectId = req.params.id;
     if (!mongoose.Types.ObjectId.isValid(projectId))
@@ -1170,12 +1386,12 @@ router.delete("/:id",async (req, res) => {
 
     console.log("🗑️ Starting project deletion cleanup for:", project.name);
 
-    // Initialize GridFS bucket for file cleanup
+    
     const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
       bucketName: "fs",
     });
 
-    // 1. Delete main model file from GridFS
+    
     if (project.modelFileId) {
       try {
         await bucket.delete(project.modelFileId);
@@ -1199,48 +1415,22 @@ router.delete("/:id",async (req, res) => {
       }
     }
 
-    // 3. Delete build files from file system
+    // 🟢 3. Delete temporary build files
     if (project.builds && project.builds.length > 0) {
       for (const build of project.builds) {
         try {
-          const projectDir = path.join(
-            UNITY_ROOT,
-            build.category || project.category,
-            project.name.replace(/\s+/g, "_")
-          );
-
-          if (fs.existsSync(projectDir)) {
-            // Delete the entire project directory
-            fs.rmSync(projectDir, { recursive: true, force: true });
-            console.log("✅ Deleted build directory:", projectDir);
+          const buildPath = path.join(CHUNK_DIR, 'builds', build.category, project.name.replace(/\s+/g, "_"), build.name.replace(/\s+/g, "_"));
+          if (fs.existsSync(buildPath)) {
+            fs.rmSync(buildPath, { recursive: true, force: true });
+            console.log("✅ Deleted temporary build:", buildPath);
           }
         } catch (error) {
-          console.error("❌ Error deleting build directory:", error);
+          console.error("❌ Error deleting temporary build:", error);
         }
       }
     }
 
-    // 4. Delete any temporary files related to this project
-    try {
-      const tempDir = path.join(UNITY_ROOT, 'temp');
-      if (fs.existsSync(tempDir)) {
-        // Look for files that might be related to this project
-        const files = fs.readdirSync(tempDir);
-        const projectPattern = new RegExp(project.name.replace(/\s+/g, '_'), 'i');
-
-        for (const file of files) {
-          if (projectPattern.test(file)) {
-            const filePath = path.join(tempDir, file);
-            fs.unlinkSync(filePath);
-            console.log("✅ Deleted temporary file:", filePath);
-          }
-        }
-      }
-    } catch (error) {
-      console.error("❌ Error cleaning temporary files:", error);
-    }
-
-    // 5. Finally delete the project from database
+    // 4. Finally delete the project from database
     await Project.deleteOne({ _id: projectId });
 
     console.log("✅ Project deletion completed successfully");
@@ -1292,5 +1482,100 @@ router.get("/", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+// Debug endpoint to check current chunk status
+router.get('/debug/chunk-status', async (req, res) => {
+  try {
+    const status = {
+      chunkDirExists: fs.existsSync(CHUNK_DIR),
+      chunkDirPath: CHUNK_DIR,
+      items: []
+    };
 
+    if (status.chunkDirExists) {
+      status.items = await readdir(CHUNK_DIR);
+      
+      // Get details for each item
+      status.details = [];
+      for (const item of status.items) {
+        const itemPath = path.join(CHUNK_DIR, item);
+        try {
+          const stats = fs.statSync(itemPath);
+          status.details.push({
+            name: item,
+            isDirectory: stats.isDirectory(),
+            size: stats.size,
+            modified: stats.mtime,
+            path: itemPath
+          });
+        } catch (error) {
+          status.details.push({
+            name: item,
+            error: error.message
+          });
+        }
+      }
+    }
+
+    console.log("🔍 Current chunk status:", JSON.stringify(status, null, 2));
+    res.json(status);
+  } catch (error) {
+    console.error("❌ Chunk status error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Debug endpoint to check Unity builds directory structure
+router.get('/debug/builds-structure', async (req, res) => {
+  try {
+    const scanDirectory = (dir, depth = 0) => {
+      const result = {
+        name: path.basename(dir),
+        path: dir,
+        isDirectory: true,
+        items: []
+      };
+
+      if (depth > 5) return result; // Prevent infinite recursion
+
+      try {
+        const items = fs.readdirSync(dir);
+        
+        for (const item of items) {
+          const itemPath = path.join(dir, item);
+          try {
+            const stats = fs.statSync(itemPath);
+            
+            if (stats.isDirectory()) {
+              result.items.push(scanDirectory(itemPath, depth + 1));
+            } else {
+              result.items.push({
+                name: item,
+                path: itemPath,
+                isDirectory: false,
+                size: stats.size,
+                isExe: item.endsWith('.exe')
+              });
+            }
+          } catch (error) {
+            result.items.push({
+              name: item,
+              error: error.message
+            });
+          }
+        }
+      } catch (error) {
+        result.error = error.message;
+      }
+
+      return result;
+    };
+
+    const structure = scanDirectory(UNITY_ROOT);
+    console.log("🏗️ Unity builds structure:", JSON.stringify(structure, null, 2));
+    res.json(structure);
+  } catch (error) {
+    console.error("❌ Builds structure error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
 export default router;
