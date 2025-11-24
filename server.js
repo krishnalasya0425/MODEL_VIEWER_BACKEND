@@ -9,6 +9,7 @@ import path from "path";
 import helpRoutes from "./routes/helpRoutes.js";
 import notificationsRoutes from "./routes/notifications.js";
 import uploadRoutes from "./routes/upload.js";
+import DriveManager from './utils/driveManager.js';
 dotenv.config();
 
 const app = express();
@@ -23,6 +24,23 @@ app.use(express.json());
 
 app.use(express.json({ limit: '50gb' }));
 app.use(express.urlencoded({ limit: '50gb', extended: true }));
+async function initializeApp() {
+  try {
+    console.log('🚀 Initializing Unity build storage...');
+    await DriveManager.ensureUnityRoot(1); // Reduced to 1GB minimum requirement
+    console.log('✅ Unity build storage initialized successfully');
+    
+    // Start your server
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error('❌ Failed to initialize application:', error);
+    process.exit(1);
+  }
+}
+
+initializeApp();
 const PUBLIC_DIR = path.join(process.cwd(), "public", "models");
 app.use("/models", express.static(PUBLIC_DIR));
 
