@@ -695,7 +695,7 @@ router.get("/my-projects", async (req, res) => {
 const processBuildZipStream = async (fileStream, originalname, category, projectName, buildConfig) => {
   return new Promise((resolve, reject) => {
     const UNITY_ROOT = getUnityRoot();
-    
+
     // 🟢 PERMANENT storage in Unity builds directory
     const permanentProjectDir = path.join(
       UNITY_ROOT,
@@ -752,17 +752,15 @@ router.post(
   combinedUpload.fields([
     { name: "mainBuildZip", maxCount: 1 },
     { name: "subBuildZips", maxCount: 10 },
-    { name: "modelFile", maxCount: 1 },
-    { name: "subModelFiles", maxCount: 10 },
+    { name: "modelFile", maxCount: 1 },        // OPTIONAL
+    { name: "subModelFiles", maxCount: 10 },   // OPTIONAL
     { name: "chunkedFiles", maxCount: 20 }
   ]),
   async (req, res) => {
     let parsedChunkedFiles = [];
 
     try {
-
       const used = process.memoryUsage();
-
 
       const {
         name,
@@ -774,7 +772,6 @@ router.post(
         subBuilds,
         chunkedFiles
       } = req.body;
-
 
       let parsedSubModels = [];
       if (subModels) {
@@ -798,21 +795,16 @@ router.post(
         try { parsedChunkedFiles = JSON.parse(chunkedFiles); } catch (e) { console.error("Error parsing chunkedFiles:", e); }
       }
 
+      // Process chunked files
       for (const chunkedFile of parsedChunkedFiles) {
         const { uploadId, fileKey, originalName } = chunkedFile;
         const uploadDir = path.join(CHUNK_DIR, uploadId);
         const assembledFilePath = path.join(uploadDir, originalName);
 
-
-
         if (fs.existsSync(assembledFilePath)) {
           try {
-
             const fileStats = fs.statSync(assembledFilePath);
-
-
             const fileStream = fs.createReadStream(assembledFilePath);
-
 
             const fileInfo = {
               stream: fileStream,
@@ -821,16 +813,12 @@ router.post(
               size: fileStats.size
             };
 
-
             if (fileKey === 'mainBuildZip') {
               req.files.mainBuildZip = [fileInfo];
             } else if (fileKey.startsWith('subBuildZips_')) {
               if (!req.files.subBuildZips) req.files.subBuildZips = [];
               req.files.subBuildZips.push(fileInfo);
             }
-
-
-
           } catch (error) {
             console.error(`❌ Error processing chunked file ${originalName}:`, error);
           }
@@ -839,49 +827,40 @@ router.post(
         }
       }
 
-
       const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
         bucketName: "fs",
       });
 
-
+      // 🟢 MODEL FILE IS NOW OPTIONAL
       let modelFileId = null;
       let modelFileName = "";
       let modelFileContentType = "";
 
       if (req.files.modelFile && req.files.modelFile[0]) {
         const modelFile = req.files.modelFile[0];
-
-
         try {
           const uploadStream = bucket.openUploadStream(modelFile.originalname, {
             contentType: modelFile.mimetype,
           });
 
-
           if (modelFile.stream) {
-
             await new Promise((resolve, reject) => {
               modelFile.stream
                 .pipe(uploadStream)
                 .on('finish', () => {
                   modelFileId = uploadStream.id;
-
                   resolve();
                 })
                 .on('error', reject);
             });
           } else {
-
             const bufferStream = new stream.PassThrough();
             bufferStream.end(modelFile.buffer);
-
             await new Promise((resolve, reject) => {
               bufferStream
                 .pipe(uploadStream)
                 .on('finish', () => {
                   modelFileId = uploadStream.id;
-
                   resolve();
                 })
                 .on('error', reject);
@@ -890,21 +869,18 @@ router.post(
 
           modelFileName = modelFile.originalname;
           modelFileContentType = modelFile.mimetype;
-
+          console.log("✅ Model file uploaded:", modelFileName);
         } catch (error) {
           console.error("❌ Error processing main model file:", error);
-          return res.status(500).json({ error: "Failed to process main model file" });
+          // Continue without model file - it's optional
         }
       } else {
-        return res.status(400).json({
-          error: "Main model file is required for all project categories"
-        });
+        console.log("ℹ️ No model file provided - continuing without model");
       }
-
 
       const projectBuilds = [];
 
-
+      // 🟢 MAIN BUILD ZIP IS STILL REQUIRED
       if (req.files.mainBuildZip && req.files.mainBuildZip[0]) {
         const mainBuildFile = req.files.mainBuildZip[0];
         const mainBuildConfig = {
@@ -913,8 +889,6 @@ router.post(
           isMain: true,
           version: parsedMainBuild.version || "1.0.0"
         };
-
-
 
         try {
           const mainBuild = await processBuildZipStream(
@@ -925,7 +899,6 @@ router.post(
             mainBuildConfig
           );
           projectBuilds.push(mainBuild);
-
         } catch (error) {
           console.error("❌ Error processing main build:", error);
           return res.status(500).json({ error: "Failed to process main build: " + error.message });
@@ -936,7 +909,7 @@ router.post(
         });
       }
 
-
+      // Process sub-builds (optional)
       if (req.files.subBuildZips && req.files.subBuildZips.length > 0) {
         console.log("📦 Processing sub-builds...");
 
@@ -965,17 +938,65 @@ router.post(
         }
       }
 
-      // Create the project
+      // 🟢 SUBMODEL FILES ARE OPTIONAL
+      let subModelFileRecords = [];
+
+      if (req.files.subModelFiles && req.files.subModelFiles.length > 0) {
+        const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, { bucketName: "fs" });
+
+        for (const file of req.files.subModelFiles) {
+          const uploadStream = bucket.openUploadStream(file.originalname, {
+            contentType: file.mimetype || "application/octet-stream",
+          });
+
+          if (file.stream) {
+            await new Promise((resolve, reject) => {
+              file.stream
+                .pipe(uploadStream)
+                .on("finish", () => resolve())
+                .on("error", reject);
+            });
+          } else {
+            const pass = new stream.PassThrough();
+            pass.end(file.buffer || file.data);
+            await new Promise((resolve, reject) => {
+              pass
+                .pipe(uploadStream)
+                .on("finish", () => resolve())
+                .on("error", reject);
+            });
+          }
+
+          subModelFileRecords.push({
+            fileId: uploadStream.id,
+            fileName: file.originalname,
+            contentType: file.mimetype || "application/octet-stream"
+          });
+        }
+      }
+
+      // Match uploaded files to submodels using fileIndex from frontend
+      parsedSubModels.forEach((sm) => {
+        if (sm.fileIndex !== undefined && subModelFileRecords[sm.fileIndex]) {
+          const fileInfo = subModelFileRecords[sm.fileIndex];
+          sm.fileId = fileInfo.fileId;
+          sm.fileName = fileInfo.fileName;
+          sm.contentType = fileInfo.contentType;
+        }
+        delete sm.fileIndex; // clean up temporary field
+      });
+
+      // Create the project - modelFileId can be null
       const project = new Project({
         name,
         description,
-        modelName,
-        modelFileId,
-        modelFileName,
+        modelName: modelName || "", // Can be empty
+        modelFileId, // Can be null
+        modelFileName, // Can be empty
         category,
         builds: projectBuilds,
-        modelFileContentType,
-        subModels: parsedSubModels,
+        modelFileContentType, // Can be empty
+        subModels: parsedSubModels, // Can be empty array
         createdBy: req.user?.id || new mongoose.Types.ObjectId(),
       });
 
@@ -1103,7 +1124,7 @@ router.post(
       res.status(500).json({ error: err.message });
     }
   }
-);
+);;
 // Add this route to handle chunked uploads
 
 // ADD NEW BUILD TO EXISTING PROJECT
